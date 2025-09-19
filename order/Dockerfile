@@ -1,17 +1,39 @@
-# Use an official Node.js runtime as a parent image
-FROM node:14
+# ---------- Builder Stage ----------
+FROM node:14 AS builder
 
-# Set the working directory to /app
+# Set working directory
 WORKDIR /app
 
-# Copy package.json and package-lock.json to the container
+# Copy dependency files first
 COPY package*.json ./
 
-# Install app dependencies
+# Install all dependencies (including dev)
 RUN npm install
 
-# Copy the rest of the application files to the container
+# Copy the rest of the application files
 COPY . .
 
-# Set the command to start the app
-CMD [ "npm", "start" ]
+# (Optional) Build step if needed (e.g. TypeScript, React, Next.js, NestJS)
+# RUN npm run build
+
+
+# ---------- Production Stage ----------
+FROM node:14-slim AS production
+
+# Set working directory
+WORKDIR /app
+
+# Copy only package.json and package-lock.json
+COPY package*.json ./
+
+# Install only production dependencies
+RUN npm install --only=production
+
+# Copy app code from builder stage
+COPY --from=builder /app ./
+
+# Expose the application port (adjust if not 3000)
+EXPOSE 3000
+
+# Run the app
+CMD ["npm", "start"]

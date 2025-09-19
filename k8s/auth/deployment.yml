@@ -15,7 +15,7 @@ spec:
     spec:
       containers:
       - name: auth
-        image: auth:latest
+        image: roshan03ish/auth:v1
         imagePullPolicy: IfNotPresent
         resources:
           limits:
@@ -40,23 +40,27 @@ spec:
               key: jwt-secret
         livenessProbe:
           httpGet:
-            path: /auth/login
+            path: /health
             port: 3000
           initialDelaySeconds: 30
           periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 3
         readinessProbe:
           httpGet:
-            path: /auth/login
+            path: /health
             port: 3000
-          initialDelaySeconds: 5
+          initialDelaySeconds: 10
           periodSeconds: 5
+          timeoutSeconds: 3
+          failureThreshold: 3
       restartPolicy: Always
-
 ---
 apiVersion: v1
 kind: Service
 metadata:
   name: auth
+  namespace: ecommerce
 spec:
   selector:
     app: auth

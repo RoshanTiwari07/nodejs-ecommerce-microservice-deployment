@@ -17,8 +17,8 @@ spec:
     spec:
       containers:
       - name: api-gateway
-        image: api-gateway:latest
-        imagePullPolicy: IfNotPresent
+        image: roshan03ish/api-gateway:v3
+        imagePullPolicy: Always
         env:
         - name: PORT
           value: "3003"
@@ -34,16 +34,20 @@ spec:
           name: http
         livenessProbe:
           httpGet:
-            path: /
+            path: /health
             port: 3003
           initialDelaySeconds: 30
           periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 3
         readinessProbe:
           httpGet:
-            path: /
+            path: /health
             port: 3003
-          initialDelaySeconds: 5
+          initialDelaySeconds: 10
           periodSeconds: 5
+          timeoutSeconds: 3
+          failureThreshold: 3
       restartPolicy: Always
 ---
 apiVersion: v1

@@ -32,6 +32,24 @@ class App {
   }
 
   setRoutes() {
+    // Health check endpoint for Kubernetes probes
+    this.app.get("/health", (req, res) => {
+      res.status(200).json({ 
+        status: "OK", 
+        service: "Auth Service",
+        timestamp: new Date().toISOString()
+      });
+    });
+
+    // Root endpoint for basic info
+    this.app.get("/", (req, res) => {
+      res.status(200).json({ 
+        message: "Auth Service is running",
+        version: "1.0.0",
+        endpoints: ["/login", "/register", "/dashboard"]
+      });
+    });
+
     this.app.post("/login", (req, res) => this.authController.login(req, res));
     this.app.post("/register", (req, res) => this.authController.register(req, res));
     this.app.get("/dashboard", authMiddleware, (req, res) => res.json({ message: "Welcome to dashboard" }));
