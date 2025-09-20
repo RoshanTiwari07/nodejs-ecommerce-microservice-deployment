@@ -1,0 +1,54 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: ecommerce-ingress
+  namespace: ecommerce
+  annotations:
+    nginx.ingress.kubernetes.io/ssl-redirect: "false"
+  labels:
+    app.kubernetes.io/name: ecommerce-ingress
+spec:
+  rules:
+  - host: ecommerce.local
+    http:
+      paths:
+      # Auth routes via API Gateway
+      - pathType: Prefix
+        path: "/auth"
+        backend:
+          service:
+            name: api-gateway
+            port:
+              number: 3003
+      # Product routes via API Gateway  
+      - pathType: Prefix
+        path: "/products"
+        backend:
+          service:
+            name: api-gateway
+            port:
+              number: 3003
+      # Order routes via API Gateway
+      - pathType: Prefix
+        path: "/orders"
+        backend:
+          service:
+            name: api-gateway
+            port:
+              number: 3003
+      # Health check route (direct to API Gateway)
+      - pathType: Prefix
+        path: "/health"
+        backend:
+          service:
+            name: api-gateway
+            port:
+              number: 3003
+      # Default route to API Gateway
+      - pathType: Prefix
+        path: "/"
+        backend:
+          service:
+            name: api-gateway
+            port:
+              number: 3003

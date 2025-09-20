@@ -33,6 +33,25 @@ class App {
   }
 
   setRoutes() {
+    // Health check endpoint for Kubernetes probes
+    this.app.get("/health", (req, res) => {
+      res.status(200).json({ 
+        status: "OK", 
+        service: "Product Service",
+        timestamp: new Date().toISOString()
+      });
+    });
+
+    // Root endpoint for basic info
+    this.app.get("/", (req, res) => {
+      res.status(200).json({ 
+        message: "Product Service is running",
+        version: "1.0.0",
+        description: "Product management and inventory service"
+      });
+    });
+
+    // Product API routes
     this.app.use("/api/products", productsRouter);
   }
 

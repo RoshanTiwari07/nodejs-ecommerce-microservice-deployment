@@ -9,6 +9,7 @@ class App {
     this.app = express();
     this.connectDB();
     this.setupOrderConsumer();
+    this.setRoutes();
   }
 
   async connectDB() {
@@ -67,7 +68,25 @@ class App {
     }, 10000); // add a delay to wait for RabbitMQ to start in docker-compose
   }
 
+  setRoutes() {
+    // Health check endpoint for Kubernetes probes
+    this.app.get("/health", (req, res) => {
+      res.status(200).json({ 
+        status: "OK", 
+        service: "Order Service",
+        timestamp: new Date().toISOString()
+      });
+    });
 
+    // Root endpoint for basic info
+    this.app.get("/", (req, res) => {
+      res.status(200).json({ 
+        message: "Order Service is running",
+        version: "1.0.0",
+        description: "Message-driven order processing service"
+      });
+    });
+  }
 
   start() {
     this.server = this.app.listen(config.port, () =>
