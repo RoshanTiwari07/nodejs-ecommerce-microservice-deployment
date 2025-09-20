@@ -1,0 +1,117 @@
+@Library('Shared-lib') _
+pipeline{
+    agent any 
+
+    parameters{
+        string(name: 'BACKEND_DOCKERTAG', defaultValue: 'latest', description: 'Tag for the backend Docker image')
+    }
+
+    environment {
+        ARGOCD_SERVER = credentials('argocd-server')
+        ARGOCD_AUTH_TOKEN = credentials('argocd-auth-token')
+        GIT_CREDENTIAL_ID = "git-credentials"
+        APP_NAME = "ecommerce-microservices"
+    }
+    
+    stages{
+        stage("Validate Parameters"){
+            steps{
+                script {
+                    if(params.BACKEND_DOCKERTAG == ''){
+                        error("Docker image tag must be provided.")
+                    }
+                    echo "🚀 Deploying version: ${params.BACKEND_DOCKERTAG}"
+                }
+            }
+        }
+
+        stage("Git: Code Checkout"){
+            steps{
+                script {
+                    code_checkout("https://github.com/RoshanTiwari07/nodejs-ecommerce-microservice-deployment.git", "main")
+                }
+            }
+        }
+
+        stage("Update K8s Manifests"){
+            steps{
+                script {
+                    sh """
+                        # Update all microservice images
+                        sed -i 's|image: roshan03ish/auth:.*|image: roshan03ish/auth:${params.BACKEND_DOCKERTAG}|g' k8s/auth/deployment.yml
+                        sed -i 's|image: roshan03ish/product:.*|image: roshan03ish/product:${params.BACKEND_DOCKERTAG}|g' k8s/product/deployment.yml
+                        sed -i 's|image: roshan03ish/order:.*|image: roshan03ish/order:${params.BACKEND_DOCKERTAG}|g' k8s/order/deployment.yml
+                        sed -i 's|image: roshan03ish/api-gateway:.*|image: roshan03ish/api-gateway:${params.BACKEND_DOCKERTAG}|g' k8s/api-gateway/deployment.yml
+                        
+                        echo "✅ Updated manifests:"
+                        grep -r "image: roshan03ish" k8s/ || true
+                    """
+                }
+            }
+        }
+
+        stage("Commit & Push Changes"){
+            steps{
+                script {
+                    withCredentials([usernamePassword(credentialsId: "${GIT_CREDENTIAL_ID}", 
+                                                    usernameVariable: 'GIT_USERNAME', 
+                                                    passwordVariable: 'GIT_PASSWORD')]) {
+                        sh """
+                            git config user.name "Jenkins CD"
+                            git config user.email "jenkins@ecommerce.com"
+                            
+                            # Check if there are changes
+                            if git diff --quiet; then
+                                echo "ℹ️ No changes to commit"
+                            else
+                                git add k8s/
+                                git commit -m "🚀 Deploy ${params.BACKEND_DOCKERTAG} - Updated all microservice images"
+                                git push https://${GIT_USERNAME}:${GIT_PASSWORD}@github.com/RoshanTiwari07/nodejs-ecommerce-microservice-deployment.git main
+                                echo "✅ Changes pushed to Git"
+                            fi
+                        """
+                    }
+                }
+            }
+        }
+
+        stage("Deploy with Batch Script"){
+            steps{
+                script {
+                    dir('k8s') {
+                        // Use your existing deploy.bat script!
+                        bat """
+                            echo "🚀 Running deploy.bat - One-click deployment!"
+                            deploy.bat
+                        """
+                    }
+                }
+            }
+        }
+
+        stage("Trigger ArgoCD Sync (Optional)"){
+            steps{
+                script {
+                    // Optional: Trigger ArgoCD sync if you want GitOps
+                    sh """
+                        echo "🔄 Triggering ArgoCD sync..."
+                        argocd app sync ${APP_NAME} \\
+                            --server ${ARGOCD_SERVER} \\
+                            --auth-token ${ARGOCD_AUTH_TOKEN} \\
+                            --prune || echo "ArgoCD sync failed, but deployment already done via batch script"
+                    """
+                }
+            }
+        }
+    }
+
+    post {
+        success {
+            echo "🎉 ArgoCD deployment successful for version ${params.BACKEND_DOCKERTAG}!"
+        }
+        
+        failure {
+            echo "❌ ArgoCD deployment failed!"
+        }
+    }
+}
