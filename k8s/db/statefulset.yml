@@ -16,7 +16,7 @@ spec:
     spec:
       containers:
       - name: mongodb
-        image: mongo:latest
+        image: mongo:4.4
         ports:
         - containerPort: 27017
         resources:
@@ -37,6 +37,8 @@ spec:
             secretKeyRef:
               name: mongodb-secret
               key: password
+        - name: MONGO_INITDB_DATABASE
+          value: "admin"
         volumeMounts:
         - name: data
           mountPath: /data/db
@@ -48,7 +50,7 @@ spec:
       resources:
         requests:
           storage: 1Gi
-      storageClassName: "standard" # Use standard storage class
+      storageClassName: "standard"
 ---
 apiVersion: v1
 kind: Service
