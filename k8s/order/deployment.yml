@@ -15,7 +15,7 @@ spec:
     spec:
       containers:
       - name: order
-        image: roshan03ish/order:v1
+        image: roshan03ish/order:latest
         imagePullPolicy: IfNotPresent
         resources:
           limits:
