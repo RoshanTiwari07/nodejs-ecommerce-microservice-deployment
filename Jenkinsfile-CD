@@ -76,27 +76,51 @@ pipeline{
             }
         }
 
-        stage("Debug Environment"){
+        stage("Install Required Tools"){
             steps{
                 script {
                     sh """
-                        echo "🔍 Debugging Jenkins environment..."
-                        echo "Current PATH: \$PATH"
-                        echo "Current USER: \$(whoami)"
-                        echo "Current PWD: \$(pwd)"
+                        echo "� Installing Kind and kubectl in Jenkins container..."
                         
-                        echo "🔎 Looking for Kind installation..."
-                        which kind || echo "Kind not found in PATH"
-                        find /usr/local/bin /usr/bin /bin /home -name "kind" 2>/dev/null || echo "Kind binary not found"
+                        # Install Kind if not present
+                        if ! command -v kind &> /dev/null; then
+                            echo "📦 Installing Kind..."
+                            curl -Lo ./kind https://kind.sigs.k8s.io/dl/v0.20.0/kind-linux-amd64
+                            chmod +x ./kind
+                            # Try system install, fallback to workspace
+                            if mv ./kind /usr/local/bin/kind 2>/dev/null; then
+                                echo "✅ Kind installed to system path"
+                            else
+                                echo "⚠️ Installing to workspace - adding to PATH"
+                                export PATH=\$PWD:\$PATH
+                            fi
+                        else
+                            echo "✅ Kind already available"
+                        fi
                         
-                        echo "🔎 Looking for kubectl..."
-                        which kubectl || echo "kubectl not found in PATH"
+                        # Install kubectl if not present  
+                        if ! command -v kubectl &> /dev/null; then
+                            echo "� Installing kubectl..."
+                            curl -LO "https://dl.k8s.io/release/\$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
+                            chmod +x kubectl
+                            # Try system install, fallback to workspace
+                            if mv kubectl /usr/local/bin/kubectl 2>/dev/null; then
+                                echo "✅ kubectl installed to system path"
+                            else
+                                echo "⚠️ Installing to workspace - adding to PATH"
+                                export PATH=\$PWD:\$PATH
+                            fi
+                        else
+                            echo "✅ kubectl already available"
+                        fi
                         
-                        echo "🐳 Checking Docker..."
-                        docker --version || echo "Docker not found"
+                        # Verify installations
+                        echo "🔍 Verifying installations..."
+                        kind version
+                        kubectl version --client
+                        docker --version
                         
-                        echo "📂 Jenkins workspace:"
-                        ls -la
+                        echo "✅ All tools ready!"
                     """
                 }
             }
