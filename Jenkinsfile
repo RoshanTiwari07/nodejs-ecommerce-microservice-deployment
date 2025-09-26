@@ -145,8 +145,10 @@ pipeline{
                     archiveArtifacts artifacts: '*.xml', followSymlinks: false
                 }
                 
-                // Trigger CD pipeline
-                build job: "ecommerce-CD", parameters: [
+                // Trigger CD pipeline automatically
+                echo "🚀 CI Pipeline completed successfully!"
+                echo "📋 Triggering CD deployment..."
+                build job: "microservice-backend-CD", parameters: [
                     string(name: 'BACKEND_DOCKERTAG', value: "${params.BACKEND_DOCKERTAG}")
                 ]
             }
