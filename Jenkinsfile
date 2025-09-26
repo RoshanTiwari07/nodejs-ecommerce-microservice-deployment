@@ -139,10 +139,17 @@ pipeline{
     
     post{
         success{
-            archiveArtifacts artifacts: '*.xml', followSymlinks: false
-            build job: "ecommerce-CD", parameters: [
-                string(name: 'BACKEND_DOCKERTAG', value: "${params.BACKEND_DOCKERTAG}")
-            ]
+            script {
+                // Archive artifacts only if they exist
+                if (fileExists('*.xml')) {
+                    archiveArtifacts artifacts: '*.xml', followSymlinks: false
+                }
+                
+                // Trigger CD pipeline
+                build job: "ecommerce-CD", parameters: [
+                    string(name: 'BACKEND_DOCKERTAG', value: "${params.BACKEND_DOCKERTAG}")
+                ]
+            }
         }
     }
 }
