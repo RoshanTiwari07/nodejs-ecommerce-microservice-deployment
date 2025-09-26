@@ -27,6 +27,11 @@ nodes:
 EOF
     kind create cluster --config=kind-config.yaml --name=ecommerce
     
+    # Wait for cluster to be ready
+    echo "⏳ Waiting for cluster to be ready..."
+    sleep 30
+    kubectl wait --for=condition=ready nodes --all --timeout=120s
+    
     # Install ingress controller
     echo "🌐 Installing NGINX Ingress Controller..."
     kubectl apply -f https://raw.githubusercontent.com/kubernetes/ingress-nginx/main/deploy/static/provider/kind/deploy.yaml
