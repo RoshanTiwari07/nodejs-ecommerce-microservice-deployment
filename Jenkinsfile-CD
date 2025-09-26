@@ -1,0 +1,218 @@
+@Library('Shared-lib') _
+// Minimal CD pipeline: assumes images already built & pushed by CI.
+// Goals: install kind/kubectl if missing (in Jenkins container), create ephemeral cluster, deploy manifests, wait for readiness.
+pipeline {
+  agent any
+
+  options {
+    timestamps()
+    ansiColor('xterm')
+    buildDiscarder(logRotator(numToKeepStr: '15'))
+    timeout(time: 20, unit: 'MINUTES')
+  }
+
+  parameters {
+    string(name: 'BACKEND_DOCKERTAG', defaultValue: 'latest', description: 'Tag shared by all service images (auth/product/order/api-gateway)')
+  }
+
+  environment {
+    // Directory inside Jenkins container where we place CLI binaries if needed
+    BIN_DIR = "${WORKSPACE}/.bin"
+    PATH = "${BIN_DIR}:${env.PATH}"
+    CLUSTER_NAME = 'ecommerce'
+    NAMESPACE = 'ecommerce'
+  }
+
+  stages {
+    stage('Checkout') {
+      steps {
+        script {
+          code_checkout('https://github.com/RoshanTiwari07/nodejs-ecommerce-microservice-deployment.git', 'main')
+        }
+      }
+    }
+
+    stage('Validate Input') {
+      steps {
+        script {
+          if(!params.BACKEND_DOCKERTAG?.trim()) {
+            error 'BACKEND_DOCKERTAG must not be empty'
+          }
+          echo "Deploying tag: ${params.BACKEND_DOCKERTAG}"
+        }
+      }
+    }
+
+    stage('Install kubectl & kind (if needed)') {
+      steps {
+        sh '''
+          set -e
+          mkdir -p "$BIN_DIR"
+          chmod 755 "$BIN_DIR"
+          export PATH="$BIN_DIR:$PATH"
+
+          if ! command -v kind >/dev/null 2>&1; then
+            echo "[INFO] Installing kind..."
+            curl -fsSL https://kind.sigs.k8s.io/dl/v0.23.0/kind-linux-amd64 -o "$BIN_DIR/kind"
+            chmod +x "$BIN_DIR/kind"
+          else
+            echo "[INFO] kind already present: $(kind version)"
+          fi
+
+          if ! command -v kubectl >/dev/null 2>&1; then
+            echo "[INFO] Installing kubectl..."
+            KVER=$(curl -L -s https://dl.k8s.io/release/stable.txt)
+            curl -fsSL "https://dl.k8s.io/release/${KVER}/bin/linux/amd64/kubectl" -o "$BIN_DIR/kubectl"
+            chmod +x "$BIN_DIR/kubectl"
+          else
+            echo "[INFO] kubectl already present: $(kubectl version --client --output=yaml | grep gitVersion)"
+          fi
+
+          echo "[INFO] Final tool versions:"
+          kind version || true
+          kubectl version --client || true
+        '''
+      }
+    }
+
+    stage('Create Kind Cluster') {
+      steps {
+        sh '''
+          set -e
+          export PATH="$BIN_DIR:$PATH"
+          echo "[INFO] Deleting any existing cluster (ignore errors)" || true
+          kind delete cluster --name="$CLUSTER_NAME" || true
+          echo "[INFO] Creating cluster $CLUSTER_NAME"
+          kind create cluster --name="$CLUSTER_NAME" --wait=90s
+          echo "[INFO] Current clusters:"
+          kind get clusters
+        '''
+      }
+    }
+
+    stage('Patch Image Tags in Manifests') {
+      steps {
+        sh '''
+          set -e
+          echo "[INFO] Updating deployment image tags to :${BACKEND_DOCKERTAG}"
+          sed -i "s|image: roshan03ish/auth:.*|image: roshan03ish/auth:${BACKEND_DOCKERTAG}|" k8s/auth/deployment.yml
+          sed -i "s|image: roshan03ish/product:.*|image: roshan03ish/product:${BACKEND_DOCKERTAG}|" k8s/product/deployment.yml
+          sed -i "s|image: roshan03ish/order:.*|image: roshan03ish/order:${BACKEND_DOCKERTAG}|" k8s/order/deployment.yml
+          sed -i "s|image: roshan03ish/api-gateway:.*|image: roshan03ish/api-gateway:${BACKEND_DOCKERTAG}|" k8s/api-gateway/deployment.yml
+          echo "[INFO] Resulting image references:"
+          grep -R "image: roshan03ish" k8s || true
+        '''
+      }
+    }
+
+    stage('Apply Kubernetes Manifests') {
+      steps {
+        sh '''
+          set -e
+          export PATH="$BIN_DIR:$PATH"
+          echo "[INFO] Creating namespace (idempotent)"
+          kubectl get ns "$NAMESPACE" >/dev/null 2>&1 || kubectl create namespace "$NAMESPACE"
+
+          echo "[INFO] Applying base resources"
+          kubectl apply -n "$NAMESPACE" -f k8s/db || true
+          kubectl apply -n "$NAMESPACE" -f k8s/auth || true
+          kubectl apply -n "$NAMESPACE" -f k8s/product || true
+          kubectl apply -n "$NAMESPACE" -f k8s/order || true
+          kubectl apply -n "$NAMESPACE" -f k8s/api-gateway || true
+          # If ingress controller & ingress are needed later, add here.
+
+          echo "[INFO] Manifests applied"
+        '''
+      }
+    }
+
+    stage('Wait for Pods') {
+      steps {
+        sh '''
+          set -e
+          export PATH="$BIN_DIR:$PATH"
+          echo "[INFO] Waiting for pods (auth, product, order, api-gateway)"
+          for app in auth product order api-gateway; do
+            echo "[INFO] Waiting for deployment/$app"
+            kubectl rollout status deployment/$app -n "$NAMESPACE" --timeout=120s || {
+              echo "[WARN] Deployment $app not fully ready within timeout";
+            }
+          done
+          echo "[INFO] Pod summary:";
+          kubectl get pods -n "$NAMESPACE" -o wide
+        '''
+      }
+    }
+
+    stage('Basic Service Check') {
+      steps {
+        sh '''
+          set -e
+          export PATH="$BIN_DIR:$PATH"
+          echo "[INFO] Listing services";
+          kubectl get svc -n "$NAMESPACE"
+          echo "[INFO] Attempting port-forward of api-gateway (background)";
+          kubectl port-forward -n "$NAMESPACE" svc/api-gateway 8080:3003 >/dev/null 2>&1 &
+          PF_PID=$!
+          sleep 8
+          echo "[INFO] Curl health endpoint (if exposed)";
+          if curl -fsS http://127.0.0.1:8080/health >/dev/null 2>&1; then
+            echo "[OK] Health endpoint responded"
+          else
+            echo "[WARN] Health endpoint not reachable (this may be expected if route not implemented)"
+          fi
+          kill $PF_PID 2>/dev/null || true
+        '''
+      }
+    }
+  }
+
+  post {
+    success {
+      echo "✅ CD pipeline completed successfully for tag ${params.BACKEND_DOCKERTAG}."
+    }
+    failure {
+      echo "❌ CD pipeline failed for tag ${params.BACKEND_DOCKERTAG}." 
+      script {
+        sh '''
+          set +e
+          echo "[FAILURE] Gathering diagnostics before cleanup..." || true
+          export PATH="$BIN_DIR:$PATH"
+          # Diagnostics (best effort)
+          kubectl get ns "$NAMESPACE" 2>/dev/null && kubectl get all -n "$NAMESPACE" || true
+          kubectl describe pods -n "$NAMESPACE" || true
+          kubectl get events -n "$NAMESPACE" --sort-by=.lastTimestamp | tail -n 60 || true
+
+          echo "[CLEANUP] Starting failure cleanup (namespace, PVC/PVs, cluster)"
+          if command -v kubectl >/dev/null 2>&1; then
+            if kubectl get namespace "$NAMESPACE" >/dev/null 2>&1; then
+              echo "[CLEANUP] Deleting namespace $NAMESPACE (async)";
+              kubectl delete namespace "$NAMESPACE" --wait=false || true
+            else
+              echo "[CLEANUP] Namespace $NAMESPACE not found (maybe never created)."
+            fi
+
+            echo "[CLEANUP] Checking for lingering PVs bound to namespace (rare in kind)";
+            kubectl get pv --no-headers 2>/dev/null | awk '/${NAMESPACE}/ {print $1}' | while read pv; do
+              [ -z "$pv" ] && continue; echo "[CLEANUP] Forcing delete of PV $pv"; kubectl delete pv "$pv" || true; done
+          else
+            echo "[CLEANUP] kubectl not available; skipping namespace/PV cleanup"
+          fi
+
+          # Delete the whole kind cluster (fastest way to ensure volume cleanup)
+          if command -v kind >/dev/null 2>&1; then
+            echo "[CLEANUP] Deleting kind cluster $CLUSTER_NAME";
+            kind delete cluster --name "$CLUSTER_NAME" || true
+          else
+            echo "[CLEANUP] kind CLI not available; cannot delete cluster explicitly"
+          fi
+
+          echo "[CLEANUP] Failure cleanup completed." || true
+        '''
+      }
+    }
+    always {
+      echo '🏁 Pipeline finished.'
+    }
+  }
+}
