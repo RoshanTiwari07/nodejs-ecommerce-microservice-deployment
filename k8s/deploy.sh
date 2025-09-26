@@ -4,7 +4,7 @@ set -e
 echo "🚀 Deploying Ecommerce Microservices to Kind Kubernetes..."
 
 # Check if Kind cluster exists
-if ! kind get clusters | grep -q "kind"; then
+if ! kind get clusters | grep -q "ecommerce"; then
     echo "📦 Creating Kind cluster..."
     cat << EOF > kind-config.yaml
 kind: Cluster
@@ -25,7 +25,7 @@ nodes:
   - containerPort: 30000
     hostPort: 30000
 EOF
-    kind create cluster --config=kind-config.yaml
+    kind create cluster --config=kind-config.yaml --name=ecommerce
     
     # Install ingress controller
     echo "🌐 Installing NGINX Ingress Controller..."
@@ -44,16 +44,16 @@ kubectl apply -f namespace.yml
 # Load Docker images into Kind cluster
 echo "📥 Loading Docker images into Kind cluster..."
 if docker images | grep -q "roshan03ish/auth"; then
-    kind load docker-image roshan03ish/auth:latest || echo "   Auth image not found locally"
+    kind load docker-image roshan03ish/auth:latest --name=ecommerce || echo "   Auth image not found locally"
 fi
 if docker images | grep -q "roshan03ish/product"; then
-    kind load docker-image roshan03ish/product:latest || echo "   Product image not found locally"
+    kind load docker-image roshan03ish/product:latest --name=ecommerce || echo "   Product image not found locally"
 fi  
 if docker images | grep -q "roshan03ish/order"; then
-    kind load docker-image roshan03ish/order:latest || echo "   Order image not found locally"
+    kind load docker-image roshan03ish/order:latest --name=ecommerce || echo "   Order image not found locally"
 fi
 if docker images | grep -q "roshan03ish/api-gateway"; then
-    kind load docker-image roshan03ish/api-gateway:latest || echo "   API Gateway image not found locally"
+    kind load docker-image roshan03ish/api-gateway:latest --name=ecommerce || echo "   API Gateway image not found locally"
 fi
 
 # Deploy database
