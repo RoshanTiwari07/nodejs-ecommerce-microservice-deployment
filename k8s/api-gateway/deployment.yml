@@ -17,7 +17,7 @@ spec:
     spec:
       containers:
       - name: api-gateway
-        image: roshan03ish/api-gateway:v1.6
+        image: roshan03ish/api-gateway:latest
         imagePullPolicy: Always
         env:
         - name: PORT
