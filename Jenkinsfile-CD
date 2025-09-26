@@ -7,7 +7,6 @@ pipeline{
     }
 
     environment {
-        GITHUB_TOKEN = credentials('github-token')
         APP_NAME = "ecommerce-microservices"
         KUBECONFIG = "/var/lib/jenkins/.kube/config"
     }
@@ -54,6 +53,7 @@ pipeline{
                 script {
                     withCredentials([string(credentialsId: 'github-token', variable: 'GITHUB_TOKEN')]) {
                         sh """
+                            # Configure git
                             git config user.name "Jenkins CD"
                             git config user.email "jenkins@ecommerce.com"
                             
@@ -61,10 +61,14 @@ pipeline{
                             if git diff --quiet; then
                                 echo "ℹ️ No changes to commit"
                             else
+                                echo "📝 Committing manifest changes..."
                                 git add k8s/
                                 git commit -m "🚀 Deploy ${params.BACKEND_DOCKERTAG} - Updated all microservice images"
-                                git push https://\${GITHUB_TOKEN}@github.com/RoshanTiwari07/nodejs-ecommerce-microservice-deployment.git main
-                                echo "✅ Changes pushed to Git"
+                                
+                                echo "� Pushing changes to GitHub..."
+                                # Use proper token authentication format
+                                git push https://\${GITHUB_TOKEN}@github.com/RoshanTiwari07/nodejs-ecommerce-microservice-deployment.git HEAD:main
+                                echo "✅ Changes pushed to Git successfully"
                             fi
                         """
                     }
