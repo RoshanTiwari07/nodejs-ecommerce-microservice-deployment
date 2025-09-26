@@ -9,8 +9,9 @@ pipeline{
     environment {
         ARGOCD_SERVER = credentials('argocd-server')
         ARGOCD_AUTH_TOKEN = credentials('argocd-auth-token')
-        GIT_CREDENTIAL_ID = "git-credentials"
+        GITHUB_TOKEN = credentials('github-token')
         APP_NAME = "ecommerce-microservices"
+        KUBECONFIG = "/var/lib/jenkins/.kube/config"
     }
     
     stages{
@@ -53,9 +54,7 @@ pipeline{
         stage("Commit & Push Changes"){
             steps{
                 script {
-                    withCredentials([usernamePassword(credentialsId: "${GIT_CREDENTIAL_ID}", 
-                                                    usernameVariable: 'GIT_USERNAME', 
-                                                    passwordVariable: 'GIT_PASSWORD')]) {
+                    withCredentials([string(credentialsId: 'github-token', variable: 'GITHUB_TOKEN')]) {
                         sh """
                             git config user.name "Jenkins CD"
                             git config user.email "jenkins@ecommerce.com"
@@ -66,7 +65,7 @@ pipeline{
                             else
                                 git add k8s/
                                 git commit -m "🚀 Deploy ${params.BACKEND_DOCKERTAG} - Updated all microservice images"
-                                git push https://${GIT_USERNAME}:${GIT_PASSWORD}@github.com/RoshanTiwari07/nodejs-ecommerce-microservice-deployment.git main
+                                git push https://\${GITHUB_TOKEN}@github.com/RoshanTiwari07/nodejs-ecommerce-microservice-deployment.git main
                                 echo "✅ Changes pushed to Git"
                             fi
                         """
@@ -75,16 +74,72 @@ pipeline{
             }
         }
 
-        stage("Deploy with Batch Script"){
+        stage("Prepare Kind Cluster"){
             steps{
                 script {
                     dir('k8s') {
-                        // Use your existing deploy.bat script!
-                        bat """
-                            echo "🚀 Running deploy.bat - One-click deployment!"
-                            deploy.bat
+                        sh """
+                            echo "🔧 Ensuring Kind cluster is ready..."
+                            chmod +x kind-cluster.sh
+                            
+                            # Check if Kind cluster exists, create if not
+                            if ! kind get clusters | grep -q "ecommerce"; then
+                                echo "📦 Creating Kind cluster..."
+                                ./kind-cluster.sh create
+                            else
+                                echo "✅ Kind cluster already exists"
+                                ./kind-cluster.sh status
+                            fi
+                            
+                            # Load latest images into Kind
+                            echo "📥 Loading Docker images into Kind..."
+                            ./kind-cluster.sh load-images
                         """
                     }
+                }
+            }
+        }
+
+        stage("Deploy with Kind Kubernetes"){
+            steps{
+                script {
+                    dir('k8s') {
+                        // Make scripts executable and run deployment
+                        sh """
+                            echo "🚀 Running Kind deployment - One-click deployment!"
+                            chmod +x *.sh
+                            ./deploy.sh
+                        """
+                    }
+                }
+            }
+        }
+
+        stage("Post-Deployment Verification"){
+            steps{
+                script {
+                    sh """
+                        echo "🔍 Verifying deployment..."
+                        
+                        # Wait for pods to be ready
+                        echo "⏳ Waiting for pods to be ready..."
+                        kubectl wait --for=condition=ready pod -l app=auth -n ecommerce --timeout=120s || true
+                        kubectl wait --for=condition=ready pod -l app=product -n ecommerce --timeout=120s || true
+                        kubectl wait --for=condition=ready pod -l app=order -n ecommerce --timeout=120s || true
+                        kubectl wait --for=condition=ready pod -l app=api-gateway -n ecommerce --timeout=120s || true
+                        
+                        # Show deployment status
+                        echo "📊 Final deployment status:"
+                        kubectl get pods -n ecommerce -o wide
+                        kubectl get services -n ecommerce
+                        
+                        # Test health endpoints
+                        echo "🏥 Health check tests:"
+                        kubectl port-forward svc/api-gateway 8080:3003 -n ecommerce &
+                        sleep 10
+                        curl -f http://localhost:8080/health || echo "⚠️ Health check failed"
+                        pkill -f "kubectl port-forward" || true
+                    """
                 }
             }
         }
@@ -98,7 +153,7 @@ pipeline{
                         argocd app sync ${APP_NAME} \\
                             --server ${ARGOCD_SERVER} \\
                             --auth-token ${ARGOCD_AUTH_TOKEN} \\
-                            --prune || echo "ArgoCD sync failed, but deployment already done via batch script"
+                            --prune || echo "ArgoCD sync failed, but deployment already done via Kind script"
                     """
                 }
             }

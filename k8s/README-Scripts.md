@@ -1,6 +1,6 @@
-# Ecommerce Microservices - One-Click Deployment Scripts
+# Ecommerce Microservices - Kind Kubernetes Deployment Scripts
 
-This project includes simplified deployment scripts for deploying and managing ecommerce microservices on Kubernetes with built-in backend connectivity testing.
+This project includes Linux shell scripts for deploying and managing ecommerce microservices on Kind (Kubernetes in Docker) clusters, optimized for EC2 t3.large instances.
 
 ## � One-Click Deployment
 
