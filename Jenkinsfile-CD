@@ -7,8 +7,6 @@ pipeline{
     }
 
     environment {
-        ARGOCD_SERVER = credentials('argocd-server')
-        ARGOCD_AUTH_TOKEN = credentials('argocd-auth-token')
         GITHUB_TOKEN = credentials('github-token')
         APP_NAME = "ecommerce-microservices"
         KUBECONFIG = "/var/lib/jenkins/.kube/config"
@@ -144,16 +142,17 @@ pipeline{
             }
         }
 
-        stage("Trigger ArgoCD Sync (Optional)"){
+        stage("Deployment Complete"){
             steps{
                 script {
-                    // Optional: Trigger ArgoCD sync if you want GitOps
                     sh """
-                        echo "🔄 Triggering ArgoCD sync..."
-                        argocd app sync ${APP_NAME} \\
-                            --server ${ARGOCD_SERVER} \\
-                            --auth-token ${ARGOCD_AUTH_TOKEN} \\
-                            --prune || echo "ArgoCD sync failed, but deployment already done via Kind script"
+                        echo "🎉 Kubernetes deployment completed successfully!"
+                        echo "✅ All microservices deployed to Kind cluster"
+                        echo "📊 Final status:"
+                        kubectl get all -n ecommerce || true
+                        echo ""
+                        echo "🌐 Access your services:"
+                        echo "   kubectl port-forward svc/api-gateway 3003:3003 -n ecommerce"
                     """
                 }
             }
@@ -162,11 +161,11 @@ pipeline{
 
     post {
         success {
-            echo "🎉 ArgoCD deployment successful for version ${params.BACKEND_DOCKERTAG}!"
+            echo "🎉 Kind Kubernetes deployment successful for version ${params.BACKEND_DOCKERTAG}!"
         }
         
         failure {
-            echo "❌ ArgoCD deployment failed!"
+            echo "❌ Kind Kubernetes deployment failed!"
         }
     }
 }
