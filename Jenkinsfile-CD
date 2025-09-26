@@ -135,14 +135,12 @@ pipeline{
                             export PATH="/var/jenkins_home/bin:\$PATH"
                             chmod +x kind-cluster.sh
                             
-                            # Check if Kind cluster exists, create if not
-                            if ! /var/jenkins_home/bin/kind get clusters | grep -q "ecommerce"; then
-                                echo "📦 Creating Kind cluster..."
-                                PATH="/var/jenkins_home/bin:\$PATH" ./kind-cluster.sh create
-                            else
-                                echo "✅ Kind cluster already exists"
-                                PATH="/var/jenkins_home/bin:\$PATH" ./kind-cluster.sh status
-                            fi
+                            # Clean up any existing clusters and create fresh
+                            echo "�️ Cleaning up existing clusters..."
+                            /var/jenkins_home/bin/kind delete cluster --name=ecommerce 2>/dev/null || echo "No existing cluster to delete"
+                            
+                            echo "📦 Creating fresh Kind cluster..."
+                            PATH="/var/jenkins_home/bin:\$PATH" ./kind-cluster.sh create
                             
                             # Load latest images into Kind
                             echo "📥 Loading Docker images into Kind..."

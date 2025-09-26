@@ -29,8 +29,22 @@ EOF
     
     # Wait for cluster to be ready
     echo "⏳ Waiting for cluster to be ready..."
-    sleep 30
-    kubectl wait --for=condition=ready nodes --all --timeout=120s
+    sleep 10
+    
+    # Wait for API server to be ready
+    echo "🔌 Waiting for API server to be ready..."
+    timeout=120
+    while [ $timeout -gt 0 ]; do
+        if kubectl cluster-info --context kind-ecommerce &>/dev/null; then
+            echo "✅ API server is ready!"
+            break
+        fi
+        echo "   Still waiting for API server... ($timeout seconds left)"
+        sleep 5
+        timeout=$((timeout - 5))
+    done
+    
+    kubectl wait --for=condition=ready nodes --all --timeout=60s
     
     # Install ingress controller
     echo "🌐 Installing NGINX Ingress Controller..."
