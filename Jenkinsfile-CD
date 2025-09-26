@@ -8,7 +8,7 @@ pipeline{
 
     environment {
         APP_NAME = "ecommerce-microservices"
-        KUBECONFIG = "/var/lib/jenkins/.kube/config"
+        PATH = "/var/jenkins_home/bin:${env.PATH}"
     }
     
     stages{
@@ -132,20 +132,21 @@ pipeline{
                     dir('k8s') {
                         sh """
                             echo "🔧 Ensuring Kind cluster is ready..."
+                            export PATH="/var/jenkins_home/bin:\$PATH"
                             chmod +x kind-cluster.sh
                             
                             # Check if Kind cluster exists, create if not
-                            if ! kind get clusters | grep -q "ecommerce"; then
+                            if ! /var/jenkins_home/bin/kind get clusters | grep -q "ecommerce"; then
                                 echo "📦 Creating Kind cluster..."
-                                ./kind-cluster.sh create
+                                PATH="/var/jenkins_home/bin:\$PATH" ./kind-cluster.sh create
                             else
                                 echo "✅ Kind cluster already exists"
-                                ./kind-cluster.sh status
+                                PATH="/var/jenkins_home/bin:\$PATH" ./kind-cluster.sh status
                             fi
                             
                             # Load latest images into Kind
                             echo "📥 Loading Docker images into Kind..."
-                            ./kind-cluster.sh load-images
+                            PATH="/var/jenkins_home/bin:\$PATH" ./kind-cluster.sh load-images
                         """
                     }
                 }
@@ -159,8 +160,9 @@ pipeline{
                         // Make scripts executable and run deployment
                         sh """
                             echo "🚀 Running Kind deployment - One-click deployment!"
+                            export PATH="/var/jenkins_home/bin:\$PATH"
                             chmod +x *.sh
-                            ./deploy.sh
+                            PATH="/var/jenkins_home/bin:\$PATH" ./deploy.sh
                         """
                     }
                 }
