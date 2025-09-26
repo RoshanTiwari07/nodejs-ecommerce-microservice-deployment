@@ -3,7 +3,14 @@ pipeline{
     agent any 
 
     parameters{
-        string(name: 'BACKEND_DOCKERTAG', defaultValue: 'latest', description: 'Tag for the backend Docker image')
+        string(name: 'BACKEND_DOCKERTAG', defaultValue: 'latest',                            # Simple cluster management - just ensure clean slate
+                            echo "🗑️ Cleaning up any existing clusters..."
+                            /var/jenkins_home/bin/kind delete cluster --name=ecommerce 2>/dev/null || true
+                            
+                            echo "📦 Creating Kind cluster directly..."
+                            /var/jenkins_home/bin/kind create cluster --name=ecommerce --wait=60s
+                            
+                            echo "✅ Cluster created, proceeding with deployment..."iption: 'Tag for the backend Docker image')
     }
 
     environment {
