@@ -76,6 +76,32 @@ pipeline{
             }
         }
 
+        stage("Debug Environment"){
+            steps{
+                script {
+                    sh """
+                        echo "🔍 Debugging Jenkins environment..."
+                        echo "Current PATH: \$PATH"
+                        echo "Current USER: \$(whoami)"
+                        echo "Current PWD: \$(pwd)"
+                        
+                        echo "🔎 Looking for Kind installation..."
+                        which kind || echo "Kind not found in PATH"
+                        find /usr/local/bin /usr/bin /bin /home -name "kind" 2>/dev/null || echo "Kind binary not found"
+                        
+                        echo "🔎 Looking for kubectl..."
+                        which kubectl || echo "kubectl not found in PATH"
+                        
+                        echo "🐳 Checking Docker..."
+                        docker --version || echo "Docker not found"
+                        
+                        echo "📂 Jenkins workspace:"
+                        ls -la
+                    """
+                }
+            }
+        }
+
         stage("Prepare Kind Cluster"){
             steps{
                 script {
