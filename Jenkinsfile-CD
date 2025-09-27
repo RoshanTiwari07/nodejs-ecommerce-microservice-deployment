@@ -47,7 +47,7 @@ pipeline {
       }
     }
 
-    stage('Create Kind Cluster') {
+    stage('Create Multi-Node Kind Cluster') {
       steps {
         sh '''
           set -e
@@ -55,11 +55,36 @@ pipeline {
           echo "[INFO] Cleaning up any existing cluster..."
           kind delete cluster --name="$CLUSTER_NAME" 2>/dev/null || echo "No existing cluster to delete"
           
-          echo "[INFO] Creating fresh Kind cluster: $CLUSTER_NAME"
-          kind create cluster --name="$CLUSTER_NAME" --wait=90s
+          echo "[INFO] Creating multi-node Kind cluster with load balancer..."
+          kind create cluster --config=k8s/kind-config.yaml --wait=120s
           
-          echo "✅ Cluster created successfully!"
-          kubectl cluster-info --context kind-$CLUSTER_NAME
+          echo "✅ Multi-node cluster created successfully!"
+          echo "📊 Cluster nodes:"
+          kubectl get nodes -o wide --show-labels
+          
+          echo "🔧 Setting up load balancer (MetalLB)..."
+          kubectl apply -f https://raw.githubusercontent.com/metallb/metallb/v0.13.7/config/manifests/metallb-native.yaml
+          kubectl wait --namespace metallb-system --for=condition=ready pod --selector=app=metallb --timeout=90s || echo "⚠️ MetalLB not ready yet"
+          
+          echo "⚙️ Configuring load balancer IP pool..."
+          cat <<EOF | kubectl apply -f -
+apiVersion: metallb.io/v1beta1
+kind: IPAddressPool
+metadata:
+  name: example
+  namespace: metallb-system
+spec:
+  addresses:
+  - 172.19.255.200-172.19.255.250
+---
+apiVersion: metallb.io/v1beta1
+kind: L2Advertisement
+metadata:
+  name: empty
+  namespace: metallb-system
+EOF
+
+          echo "✅ Load balancer configured!"
         '''
       }
     }
