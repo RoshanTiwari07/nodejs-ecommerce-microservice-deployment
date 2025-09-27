@@ -47,7 +47,7 @@ pipeline {
       }
     }
 
-    stage('Create Kind Cluster') {
+    stage('Create Multi-Node Kind Cluster') {
       steps {
         sh '''
           set -e
@@ -55,36 +55,24 @@ pipeline {
           echo "[INFO] Cleaning up any existing cluster..."
           kind delete cluster --name="$CLUSTER_NAME" 2>/dev/null || echo "No existing cluster to delete"
           
-          echo "[INFO] Creating Kind cluster (1 control-plane + 1 worker) with load balancer..."
+          echo "[INFO] Creating multi-node Kind cluster (1 control-plane + 2 workers)..."
           kind create cluster --config=k8s/kind-config.yaml --wait=120s
           
-          echo "✅ Kind cluster created successfully!"
+          echo "✅ Multi-node cluster created successfully!"
           echo "📊 Cluster nodes:"
           kubectl get nodes -o wide --show-labels
           
-          echo "🔧 Setting up load balancer (MetalLB)..."
-          kubectl apply -f https://raw.githubusercontent.com/metallb/metallb/v0.13.7/config/manifests/metallb-native.yaml
-          kubectl wait --namespace metallb-system --for=condition=ready pod --selector=app=metallb --timeout=90s || echo "⚠️ MetalLB not ready yet"
+          echo "🔧 Setting up Nginx Ingress Controller for load balancing..."
+          kubectl apply -f https://raw.githubusercontent.com/kubernetes/ingress-nginx/main/deploy/static/provider/kind/deploy.yaml
           
-          echo "⚙️ Configuring load balancer IP pool..."
-          cat <<EOF | kubectl apply -f -
-apiVersion: metallb.io/v1beta1
-kind: IPAddressPool
-metadata:
-  name: example
-  namespace: metallb-system
-spec:
-  addresses:
-  - 172.19.255.200-172.19.255.250
----
-apiVersion: metallb.io/v1beta1
-kind: L2Advertisement
-metadata:
-  name: empty
-  namespace: metallb-system
-EOF
-
-          echo "✅ Load balancer configured!"
+          echo "⏳ Waiting for Ingress Controller to be ready..."
+          kubectl wait --namespace ingress-nginx --for=condition=ready pod --selector=app.kubernetes.io/component=controller --timeout=90s
+          
+          echo "✅ Nginx Ingress Controller deployed successfully!"
+          echo "🌐 Ingress will be accessible via:"
+          echo "   - HTTP: http://localhost (port 80)"
+          echo "   - HTTPS: https://localhost (port 443)"
+          echo "   - Host: ecommerce.local (add to /etc/hosts or use localhost)"
         '''
       }
     }
@@ -120,8 +108,11 @@ EOF
           kubectl apply -n "$NAMESPACE" -f k8s/product
           kubectl apply -n "$NAMESPACE" -f k8s/order
           kubectl apply -n "$NAMESPACE" -f k8s/api-gateway
-
-          echo "✅ All manifests applied"
+          
+          echo "[INFO] Applying ingress for load balancing..."
+          kubectl apply -f k8s/ingress.yml
+          
+          echo "✅ All manifests and ingress applied"
         '''
       }
     }
@@ -143,26 +134,40 @@ EOF
       }
     }
 
-    stage('Service Check') {
+    stage('Ingress & Service Check') {
       steps {
         sh '''
           set -e
           
-          echo "[INFO] Checking services..."
+          echo "[INFO] Checking services and ingress..."
           kubectl get svc -n "$NAMESPACE"
+          kubectl get ingress -n "$NAMESPACE"
           
-          echo "[INFO] Testing api-gateway..."
-          kubectl port-forward -n "$NAMESPACE" svc/api-gateway 8080:3003 >/dev/null 2>&1 &
-          PF_PID=$!
-          sleep 8
+          echo "[INFO] Waiting for ingress to get external IP..."
+          sleep 10
           
-          if curl -fsS --max-time 5 http://127.0.0.1:8080/health >/dev/null 2>&1; then
-            echo "✅ Health check passed"
+          echo "[INFO] Testing ingress load balancer..."
+          # Test via localhost (Kind maps port 80 to ingress)
+          if curl -fsS --max-time 10 -H "Host: ecommerce.local" http://localhost/health >/dev/null 2>&1; then
+            echo "✅ Ingress health check passed!"
+            echo "🌐 Access your application:"
+            echo "   curl -H \"Host: ecommerce.local\" http://localhost/health"
+            echo "   curl -H \"Host: ecommerce.local\" http://localhost/auth"
+            echo "   curl -H \"Host: ecommerce.local\" http://localhost/products"
           else
-            echo "⚠️ Health endpoint not available"
+            echo "⚠️ Ingress not ready yet, testing direct service..."
+            kubectl port-forward -n "$NAMESPACE" svc/api-gateway 8080:3003 >/dev/null 2>&1 &
+            PF_PID=$!
+            sleep 5
+            
+            if curl -fsS --max-time 5 http://127.0.0.1:8080/health >/dev/null 2>&1; then
+              echo "✅ Direct service health check passed"
+            else
+              echo "⚠️ Service health check failed"
+            fi
+            
+            kill $PF_PID 2>/dev/null || true
           fi
-          
-          kill $PF_PID 2>/dev/null || true
         '''
       }
     }

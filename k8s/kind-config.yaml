@@ -47,7 +47,7 @@ nodes:
     hostPort: 30003
     protocol: TCP
 
-# Single worker node
+# Worker node 1
 - role: worker
   kubeadmConfigPatches:
   - |
@@ -55,3 +55,12 @@ nodes:
     nodeRegistration:
       kubeletExtraArgs:
         node-labels: "node-type=worker,worker-id=worker-1"
+
+# Worker node 2
+- role: worker
+  kubeadmConfigPatches:
+  - |
+    kind: JoinConfiguration
+    nodeRegistration:
+      kubeletExtraArgs:
+        node-labels: "node-type=worker,worker-id=worker-2"
