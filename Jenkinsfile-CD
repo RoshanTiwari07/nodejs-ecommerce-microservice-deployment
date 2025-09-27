@@ -1,4 +1,4 @@
-@Library('Shared-lib') _
+@Library('Shared-Lib') _
 // Minimal CD pipeline: assumes images already built & pushed by CI.
 // Goals: install kind/kubectl if missing (in Jenkins container), create ephemeral cluster, deploy manifests, wait for readiness.
 pipeline {
