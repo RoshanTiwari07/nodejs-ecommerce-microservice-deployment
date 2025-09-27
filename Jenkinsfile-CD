@@ -4,21 +4,11 @@
 pipeline {
   agent any
 
-  options {
-    timestamps()
-    ansiColor('xterm')
-    buildDiscarder(logRotator(numToKeepStr: '15'))
-    timeout(time: 20, unit: 'MINUTES')
-  }
-
   parameters {
     string(name: 'BACKEND_DOCKERTAG', defaultValue: 'latest', description: 'Tag shared by all service images (auth/product/order/api-gateway)')
   }
 
   environment {
-    // Directory inside Jenkins container where we place CLI binaries if needed
-    BIN_DIR = "${WORKSPACE}/.bin"
-    PATH = "${BIN_DIR}:${env.PATH}"
     CLUSTER_NAME = 'ecommerce'
     NAMESPACE = 'ecommerce'
   }
@@ -43,55 +33,16 @@ pipeline {
       }
     }
 
-    stage('Verify Tools (Install if Missing)') {
+    stage('Verify Tools') {
       steps {
         sh '''
-          set -e
+          echo "[INFO] Verifying required tools..."
           
-          echo "[INFO] Checking for kind and kubectl..."
+          echo "✅ kind version: $(kind version)"
+          echo "✅ kubectl version: $(kubectl version --client )"
+          echo "✅ docker version: $(docker --version)"
           
-          # Check if kind exists in system PATH first
-          if command -v kind >/dev/null 2>&1; then
-            echo "✅ Found kind in system PATH: $(which kind)"
-            echo "📋 kind version: $(kind version)"
-          else
-            echo "⚠️ kind not found in system PATH, installing to workspace..."
-            mkdir -p "$BIN_DIR"
-            chmod 755 "$BIN_DIR"
-            
-            if [ -f "$BIN_DIR/kind" ]; then
-              echo "✅ Found kind in workspace: $BIN_DIR/kind"
-            else
-              echo "📦 Installing kind to workspace..."
-              curl -fsSL https://kind.sigs.k8s.io/dl/v0.23.0/kind-linux-amd64 -o "$BIN_DIR/kind"
-              chmod +x "$BIN_DIR/kind"
-              echo "✅ kind installed to $BIN_DIR/kind"
-            fi
-            export PATH="$BIN_DIR:$PATH"
-          fi
-          
-          # Check if kubectl exists in system PATH first
-          if command -v kubectl >/dev/null 2>&1; then
-            echo "✅ Found kubectl in system PATH: $(which kubectl)"
-            echo "📋 kubectl version: $(kubectl version --client --short)"
-          else
-            echo "⚠️ kubectl not found in system PATH, installing to workspace..."
-            mkdir -p "$BIN_DIR"
-            chmod 755 "$BIN_DIR"
-            
-            if [ -f "$BIN_DIR/kubectl" ]; then
-              echo "✅ Found kubectl in workspace: $BIN_DIR/kubectl"
-            else
-              echo "📦 Installing kubectl to workspace..."
-              KVER=$(curl -L -s https://dl.k8s.io/release/stable.txt)
-              curl -fsSL "https://dl.k8s.io/release/${KVER}/bin/linux/amd64/kubectl" -o "$BIN_DIR/kubectl"
-              chmod +x "$BIN_DIR/kubectl"
-              echo "✅ kubectl installed to $BIN_DIR/kubectl"
-            fi
-            export PATH="$BIN_DIR:$PATH"
-          fi
-          
-          echo "[INFO] ✅ All tools are ready!"
+          echo "[INFO] All tools verified and ready!"
         '''
       }
     }
@@ -100,20 +51,14 @@ pipeline {
       steps {
         sh '''
           set -e
-          # Ensure PATH includes both system and workspace locations
-          export PATH="$BIN_DIR:$PATH"
           
-          echo "[INFO] Deleting any existing cluster (ignore errors)"
+          echo "[INFO] Cleaning up any existing cluster..."
           kind delete cluster --name="$CLUSTER_NAME" 2>/dev/null || echo "No existing cluster to delete"
           
           echo "[INFO] Creating fresh Kind cluster: $CLUSTER_NAME"
           kind create cluster --name="$CLUSTER_NAME" --wait=90s
           
-          echo "[INFO] Cluster created successfully!"
-          echo "Current clusters:"
-          kind get clusters
-          
-          echo "Cluster info:"
+          echo "✅ Cluster created successfully!"
           kubectl cluster-info --context kind-$CLUSTER_NAME
         '''
       }
@@ -138,22 +83,19 @@ pipeline {
       steps {
         sh '''
           set -e
-          export PATH="$BIN_DIR:$PATH"
           
-          echo "[INFO] Creating namespace (idempotent)"
+          echo "[INFO] Creating namespace..."
           kubectl get ns "$NAMESPACE" >/dev/null 2>&1 || kubectl create namespace "$NAMESPACE"
           echo "✅ Namespace $NAMESPACE ready"
 
-          echo "[INFO] Applying Kubernetes manifests..."
-          kubectl apply -n "$NAMESPACE" -f k8s/db || echo "⚠️ DB resources failed to apply"
-          kubectl apply -n "$NAMESPACE" -f k8s/auth || echo "⚠️ Auth resources failed to apply"  
-          kubectl apply -n "$NAMESPACE" -f k8s/product || echo "⚠️ Product resources failed to apply"
-          kubectl apply -n "$NAMESPACE" -f k8s/order || echo "⚠️ Order resources failed to apply"
-          kubectl apply -n "$NAMESPACE" -f k8s/api-gateway || echo "⚠️ API Gateway resources failed to apply"
+          echo "[INFO] Applying manifests..."
+          kubectl apply -n "$NAMESPACE" -f k8s/db
+          kubectl apply -n "$NAMESPACE" -f k8s/auth
+          kubectl apply -n "$NAMESPACE" -f k8s/product
+          kubectl apply -n "$NAMESPACE" -f k8s/order
+          kubectl apply -n "$NAMESPACE" -f k8s/api-gateway
 
-          echo "[INFO] ✅ All manifests applied successfully"
-          echo "Resources in namespace $NAMESPACE:"
-          kubectl get all -n "$NAMESPACE" || true
+          echo "✅ All manifests applied"
         '''
       }
     }
@@ -162,54 +104,39 @@ pipeline {
       steps {
         sh '''
           set -e
-          export PATH="$BIN_DIR:$PATH"
           
-          echo "[INFO] Waiting for deployments to be ready..."
+          echo "[INFO] Waiting for deployments..."
           for app in auth product order api-gateway; do
-            echo "⏳ Waiting for deployment/$app..."
-            if kubectl rollout status deployment/$app -n "$NAMESPACE" --timeout=120s; then
-              echo "✅ $app deployment ready"
-            else
-              echo "⚠️ $app deployment not ready within timeout (continuing anyway)"
-            fi
+            echo "⏳ Waiting for $app..."
+            kubectl rollout status deployment/$app -n "$NAMESPACE" --timeout=120s
           done
           
-          echo "[INFO] Final pod status:"
+          echo "✅ All deployments ready"
           kubectl get pods -n "$NAMESPACE" -o wide
-          echo "[INFO] Service status:"
-          kubectl get svc -n "$NAMESPACE"
         '''
       }
     }
 
-    stage('Basic Service Check') {
+    stage('Service Check') {
       steps {
         sh '''
           set -e
-          export PATH="$BIN_DIR:$PATH"
           
-          echo "[INFO] 📋 Service listing:"
+          echo "[INFO] Checking services..."
           kubectl get svc -n "$NAMESPACE"
           
-          echo "[INFO] 🔌 Testing api-gateway connectivity..."
-          # Try port-forwarding to test service
+          echo "[INFO] Testing api-gateway..."
           kubectl port-forward -n "$NAMESPACE" svc/api-gateway 8080:3003 >/dev/null 2>&1 &
           PF_PID=$!
+          sleep 8
           
-          # Give port-forward time to establish
-          sleep 10
-          
-          echo "[INFO] 🏥 Checking health endpoint..."
-          if curl -fsS --max-time 10 http://127.0.0.1:8080/health >/dev/null 2>&1; then
-            echo "✅ Health endpoint responded successfully"
+          if curl -fsS --max-time 5 http://127.0.0.1:8080/health >/dev/null 2>&1; then
+            echo "✅ Health check passed"
           else
-            echo "⚠️ Health endpoint not reachable (may be expected if /health not implemented)"
+            echo "⚠️ Health endpoint not available"
           fi
           
-          # Clean up port-forward
-          kill $PF_PID 2>/dev/null || echo "Port-forward already terminated"
-          
-          echo "[INFO] ✅ Service check completed"
+          kill $PF_PID 2>/dev/null || true
         '''
       }
     }
@@ -224,38 +151,15 @@ pipeline {
       script {
         sh '''
           set +e
-          echo "[FAILURE] Gathering diagnostics before cleanup..." || true
-          export PATH="$BIN_DIR:$PATH"
-          # Diagnostics (best effort)
-          kubectl get ns "$NAMESPACE" 2>/dev/null && kubectl get all -n "$NAMESPACE" || true
+          echo "[FAILURE] Gathering diagnostics..."
+          kubectl get all -n "$NAMESPACE" || true
           kubectl describe pods -n "$NAMESPACE" || true
-          kubectl get events -n "$NAMESPACE" --sort-by=.lastTimestamp | tail -n 60 || true
+          kubectl get events -n "$NAMESPACE" --sort-by=.lastTimestamp | tail -n 20 || true
 
-          echo "[CLEANUP] Starting failure cleanup (namespace, PVC/PVs, cluster)"
-          if command -v kubectl >/dev/null 2>&1; then
-            if kubectl get namespace "$NAMESPACE" >/dev/null 2>&1; then
-              echo "[CLEANUP] Deleting namespace $NAMESPACE (async)";
-              kubectl delete namespace "$NAMESPACE" --wait=false || true
-            else
-              echo "[CLEANUP] Namespace $NAMESPACE not found (maybe never created)."
-            fi
-
-            echo "[CLEANUP] Checking for lingering PVs bound to namespace (rare in kind)";
-            kubectl get pv --no-headers 2>/dev/null | awk '/${NAMESPACE}/ {print $1}' | while read pv; do
-              [ -z "$pv" ] && continue; echo "[CLEANUP] Forcing delete of PV $pv"; kubectl delete pv "$pv" || true; done
-          else
-            echo "[CLEANUP] kubectl not available; skipping namespace/PV cleanup"
-          fi
-
-          # Delete the whole kind cluster (fastest way to ensure volume cleanup)
-          if command -v kind >/dev/null 2>&1; then
-            echo "[CLEANUP] Deleting kind cluster $CLUSTER_NAME";
-            kind delete cluster --name "$CLUSTER_NAME" || true
-          else
-            echo "[CLEANUP] kind CLI not available; cannot delete cluster explicitly"
-          fi
-
-          echo "[CLEANUP] Failure cleanup completed." || true
+          echo "[CLEANUP] Cleaning up resources..."
+          kubectl delete namespace "$NAMESPACE" --wait=false || true
+          kind delete cluster --name "$CLUSTER_NAME" || true
+          echo "✅ Cleanup completed"
         '''
       }
     }
