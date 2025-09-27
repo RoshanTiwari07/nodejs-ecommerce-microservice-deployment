@@ -15,7 +15,7 @@ spec:
     spec:
       containers:
       - name: product
-        image: roshan03ish/product:latest
+        image: roshan03ish/product:{{IMAGE_TAG}}
         imagePullPolicy: IfNotPresent
         resources:
           limits:

@@ -1,0 +1,24 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: ecommerce-microservices-kind
+  namespace: argocd
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/RoshanTiwari07/nodejs-ecommerce-microservice-deployment.git
+    targetRevision: main
+    path: k8s
+  destination:
+    # Server URL will be populated by pipeline
+    server: ""
+    namespace: ecommerce
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+    - CreateNamespace=true
+  info:
+  - name: 'Pipeline Integration'
+    value: 'Managed by Jenkins CD Pipeline'

@@ -15,7 +15,7 @@ spec:
     spec:
       containers:
       - name: auth
-        image: roshan03ish/auth:latest
+        image: roshan03ish/auth:{{IMAGE_TAG}}
         imagePullPolicy: IfNotPresent
         resources:
           limits:

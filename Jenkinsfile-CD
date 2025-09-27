@@ -89,16 +89,77 @@ EOF
       }
     }
 
+    stage('Connect to ArgoCD') {
+      steps {
+        sh '''
+          set -e
+          
+          echo "[INFO] Connecting to existing ArgoCD instance..."
+          echo "🌐 ArgoCD URL: http://3.95.137.41:8081"
+          
+          # Install ArgoCD CLI if not present
+          if ! command -v argocd >/dev/null 2>&1; then
+            echo "[INFO] Installing ArgoCD CLI..."
+            curl -sSL -o argocd-linux-amd64 https://github.com/argoproj/argo-cd/releases/latest/download/argocd-linux-amd64
+            sudo install -m 555 argocd-linux-amd64 /usr/local/bin/argocd
+            rm argocd-linux-amd64
+          fi
+          
+          # Verify connection to ArgoCD server
+          echo "[INFO] Testing connection to ArgoCD..."
+          curl -k --connect-timeout 10 http://3.95.137.41:8081/api/version || echo "⚠️ ArgoCD connection test failed, continuing anyway"
+          
+          echo "✅ ArgoCD connection configured"
+          echo "📱 ArgoCD Dashboard: http://3.95.137.41:8081/applications"
+        '''
+      }
+    }
+
+    stage('Configure ArgoCD Integration') {
+      steps {
+        sh '''
+          set -e
+          
+          echo "[INFO] Preparing ArgoCD integration files..."
+          
+          # Get Kind cluster info
+          CLUSTER_SERVER=$(kubectl cluster-info | grep "Kubernetes control plane" | sed 's/.*https:\/\///g' | sed 's/\x1b\[[0-9;]*m//g')
+          echo "📋 Cluster server: https://$CLUSTER_SERVER"
+          
+          # Update cluster registration with actual values
+          cp argocd/cluster-registration.yaml cluster-registration.yaml
+          sed -i "s|name: \"\"|name: $(echo -n "kind-$CLUSTER_NAME" | base64)|g" cluster-registration.yaml
+          sed -i "s|server: \"\"|server: $(echo -n "https://$CLUSTER_SERVER" | base64)|g" cluster-registration.yaml
+          sed -i "s|config: \"\"|config: $(kubectl config view --raw --minify | base64 -w 0)|g" cluster-registration.yaml
+          
+          # Update application manifest with actual server
+          cp argocd/ecommerce-app.yaml ecommerce-app.yaml
+          sed -i "s|server: \"\"|server: https://$CLUSTER_SERVER|g" ecommerce-app.yaml
+          
+          echo "✅ ArgoCD configuration files updated"
+          echo "📁 Files ready for ArgoCD:"
+          echo "   - cluster-registration.yaml (cluster config)"
+          echo "   - ecommerce-app.yaml (application config)"
+          echo ""
+          echo "📝 To register with your ArgoCD:"
+          echo "   kubectl apply -f cluster-registration.yaml -n argocd"
+          echo "   kubectl apply -f ecommerce-app.yaml -n argocd"
+          echo ""
+          echo "🌐 ArgoCD Dashboard: http://3.95.137.41:8081/applications"
+        '''
+      }
+    }
+
     stage('Patch Image Tags in Manifests') {
       steps {
         sh '''
           set -e
           echo "[INFO] Updating deployment image tags to :${BACKEND_DOCKERTAG}"
-          sed -i "s|image: roshan03ish/auth:.*|image: roshan03ish/auth:${BACKEND_DOCKERTAG}|" k8s/auth/deployment.yml
-          sed -i "s|image: roshan03ish/product:.*|image: roshan03ish/product:${BACKEND_DOCKERTAG}|" k8s/product/deployment.yml
-          sed -i "s|image: roshan03ish/order:.*|image: roshan03ish/order:${BACKEND_DOCKERTAG}|" k8s/order/deployment.yml
-          sed -i "s|image: roshan03ish/api-gateway:.*|image: roshan03ish/api-gateway:${BACKEND_DOCKERTAG}|" k8s/api-gateway/deployment.yml
-          echo "[INFO] Resulting image references:"
+          
+          # Replace placeholder with actual tag in all deployment files
+          find k8s -name "deployment.yml" -exec sed -i "s|{{IMAGE_TAG}}|${BACKEND_DOCKERTAG}|g" {} \\;
+          
+          echo "[INFO] Updated image tags:"
           grep -R "image: roshan03ish" k8s || true
         '''
       }

@@ -1,0 +1,12 @@
+apiVersion: v1
+kind: Secret
+metadata:
+  name: kind-cluster-secret
+  labels:
+    argocd.argoproj.io/secret-type: cluster
+type: Opaque
+data:
+  # These values will be populated by the pipeline
+  name: ""
+  server: ""
+  config: ""
