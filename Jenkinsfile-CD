@@ -47,7 +47,7 @@ pipeline {
       }
     }
 
-    stage('Create Multi-Node Kind Cluster') {
+    stage('Create Kind Cluster') {
       steps {
         sh '''
           set -e
@@ -55,10 +55,10 @@ pipeline {
           echo "[INFO] Cleaning up any existing cluster..."
           kind delete cluster --name="$CLUSTER_NAME" 2>/dev/null || echo "No existing cluster to delete"
           
-          echo "[INFO] Creating multi-node Kind cluster with load balancer..."
+          echo "[INFO] Creating Kind cluster (1 control-plane + 1 worker) with load balancer..."
           kind create cluster --config=k8s/kind-config.yaml --wait=120s
           
-          echo "✅ Multi-node cluster created successfully!"
+          echo "✅ Kind cluster created successfully!"
           echo "📊 Cluster nodes:"
           kubectl get nodes -o wide --show-labels
           
