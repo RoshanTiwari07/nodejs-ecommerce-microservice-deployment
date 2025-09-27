@@ -123,7 +123,7 @@ EOF
           echo "[INFO] Preparing ArgoCD integration files..."
           
           # Get Kind cluster info
-          CLUSTER_SERVER=$(kubectl cluster-info | grep "Kubernetes control plane" | sed 's/.*https:\/\///g' | sed 's/\x1b\[[0-9;]*m//g')
+          CLUSTER_SERVER=$(kubectl cluster-info | grep "Kubernetes control plane" | sed 's/.*https:\\/\\/\\///g' | sed 's/\\x1b\\[[0-9;]*m//g')
           echo "📋 Cluster server: https://$CLUSTER_SERVER"
           
           # Update cluster registration with actual values
