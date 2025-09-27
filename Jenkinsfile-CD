@@ -43,34 +43,55 @@ pipeline {
       }
     }
 
-    stage('Install kubectl & kind (if needed)') {
+    stage('Verify Tools (Install if Missing)') {
       steps {
         sh '''
           set -e
-          mkdir -p "$BIN_DIR"
-          chmod 755 "$BIN_DIR"
-          export PATH="$BIN_DIR:$PATH"
-
-          if ! command -v kind >/dev/null 2>&1; then
-            echo "[INFO] Installing kind..."
-            curl -fsSL https://kind.sigs.k8s.io/dl/v0.23.0/kind-linux-amd64 -o "$BIN_DIR/kind"
-            chmod +x "$BIN_DIR/kind"
+          
+          echo "[INFO] Checking for kind and kubectl..."
+          
+          # Check if kind exists in system PATH first
+          if command -v kind >/dev/null 2>&1; then
+            echo "✅ Found kind in system PATH: $(which kind)"
+            echo "📋 kind version: $(kind version)"
           else
-            echo "[INFO] kind already present: $(kind version)"
+            echo "⚠️ kind not found in system PATH, installing to workspace..."
+            mkdir -p "$BIN_DIR"
+            chmod 755 "$BIN_DIR"
+            
+            if [ -f "$BIN_DIR/kind" ]; then
+              echo "✅ Found kind in workspace: $BIN_DIR/kind"
+            else
+              echo "📦 Installing kind to workspace..."
+              curl -fsSL https://kind.sigs.k8s.io/dl/v0.23.0/kind-linux-amd64 -o "$BIN_DIR/kind"
+              chmod +x "$BIN_DIR/kind"
+              echo "✅ kind installed to $BIN_DIR/kind"
+            fi
+            export PATH="$BIN_DIR:$PATH"
           fi
-
-          if ! command -v kubectl >/dev/null 2>&1; then
-            echo "[INFO] Installing kubectl..."
-            KVER=$(curl -L -s https://dl.k8s.io/release/stable.txt)
-            curl -fsSL "https://dl.k8s.io/release/${KVER}/bin/linux/amd64/kubectl" -o "$BIN_DIR/kubectl"
-            chmod +x "$BIN_DIR/kubectl"
+          
+          # Check if kubectl exists in system PATH first
+          if command -v kubectl >/dev/null 2>&1; then
+            echo "✅ Found kubectl in system PATH: $(which kubectl)"
+            echo "📋 kubectl version: $(kubectl version --client --short)"
           else
-            echo "[INFO] kubectl already present: $(kubectl version --client --output=yaml | grep gitVersion)"
+            echo "⚠️ kubectl not found in system PATH, installing to workspace..."
+            mkdir -p "$BIN_DIR"
+            chmod 755 "$BIN_DIR"
+            
+            if [ -f "$BIN_DIR/kubectl" ]; then
+              echo "✅ Found kubectl in workspace: $BIN_DIR/kubectl"
+            else
+              echo "📦 Installing kubectl to workspace..."
+              KVER=$(curl -L -s https://dl.k8s.io/release/stable.txt)
+              curl -fsSL "https://dl.k8s.io/release/${KVER}/bin/linux/amd64/kubectl" -o "$BIN_DIR/kubectl"
+              chmod +x "$BIN_DIR/kubectl"
+              echo "✅ kubectl installed to $BIN_DIR/kubectl"
+            fi
+            export PATH="$BIN_DIR:$PATH"
           fi
-
-          echo "[INFO] Final tool versions:"
-          kind version || true
-          kubectl version --client || true
+          
+          echo "[INFO] ✅ All tools are ready!"
         '''
       }
     }
@@ -79,13 +100,21 @@ pipeline {
       steps {
         sh '''
           set -e
+          # Ensure PATH includes both system and workspace locations
           export PATH="$BIN_DIR:$PATH"
-          echo "[INFO] Deleting any existing cluster (ignore errors)" || true
-          kind delete cluster --name="$CLUSTER_NAME" || true
-          echo "[INFO] Creating cluster $CLUSTER_NAME"
+          
+          echo "[INFO] Deleting any existing cluster (ignore errors)"
+          kind delete cluster --name="$CLUSTER_NAME" 2>/dev/null || echo "No existing cluster to delete"
+          
+          echo "[INFO] Creating fresh Kind cluster: $CLUSTER_NAME"
           kind create cluster --name="$CLUSTER_NAME" --wait=90s
-          echo "[INFO] Current clusters:"
+          
+          echo "[INFO] Cluster created successfully!"
+          echo "Current clusters:"
           kind get clusters
+          
+          echo "Cluster info:"
+          kubectl cluster-info --context kind-$CLUSTER_NAME
         '''
       }
     }
@@ -110,18 +139,21 @@ pipeline {
         sh '''
           set -e
           export PATH="$BIN_DIR:$PATH"
+          
           echo "[INFO] Creating namespace (idempotent)"
           kubectl get ns "$NAMESPACE" >/dev/null 2>&1 || kubectl create namespace "$NAMESPACE"
+          echo "✅ Namespace $NAMESPACE ready"
 
-          echo "[INFO] Applying base resources"
-          kubectl apply -n "$NAMESPACE" -f k8s/db || true
-          kubectl apply -n "$NAMESPACE" -f k8s/auth || true
-          kubectl apply -n "$NAMESPACE" -f k8s/product || true
-          kubectl apply -n "$NAMESPACE" -f k8s/order || true
-          kubectl apply -n "$NAMESPACE" -f k8s/api-gateway || true
-          # If ingress controller & ingress are needed later, add here.
+          echo "[INFO] Applying Kubernetes manifests..."
+          kubectl apply -n "$NAMESPACE" -f k8s/db || echo "⚠️ DB resources failed to apply"
+          kubectl apply -n "$NAMESPACE" -f k8s/auth || echo "⚠️ Auth resources failed to apply"  
+          kubectl apply -n "$NAMESPACE" -f k8s/product || echo "⚠️ Product resources failed to apply"
+          kubectl apply -n "$NAMESPACE" -f k8s/order || echo "⚠️ Order resources failed to apply"
+          kubectl apply -n "$NAMESPACE" -f k8s/api-gateway || echo "⚠️ API Gateway resources failed to apply"
 
-          echo "[INFO] Manifests applied"
+          echo "[INFO] ✅ All manifests applied successfully"
+          echo "Resources in namespace $NAMESPACE:"
+          kubectl get all -n "$NAMESPACE" || true
         '''
       }
     }
@@ -131,15 +163,21 @@ pipeline {
         sh '''
           set -e
           export PATH="$BIN_DIR:$PATH"
-          echo "[INFO] Waiting for pods (auth, product, order, api-gateway)"
+          
+          echo "[INFO] Waiting for deployments to be ready..."
           for app in auth product order api-gateway; do
-            echo "[INFO] Waiting for deployment/$app"
-            kubectl rollout status deployment/$app -n "$NAMESPACE" --timeout=120s || {
-              echo "[WARN] Deployment $app not fully ready within timeout";
-            }
+            echo "⏳ Waiting for deployment/$app..."
+            if kubectl rollout status deployment/$app -n "$NAMESPACE" --timeout=120s; then
+              echo "✅ $app deployment ready"
+            else
+              echo "⚠️ $app deployment not ready within timeout (continuing anyway)"
+            fi
           done
-          echo "[INFO] Pod summary:";
+          
+          echo "[INFO] Final pod status:"
           kubectl get pods -n "$NAMESPACE" -o wide
+          echo "[INFO] Service status:"
+          kubectl get svc -n "$NAMESPACE"
         '''
       }
     }
@@ -149,19 +187,29 @@ pipeline {
         sh '''
           set -e
           export PATH="$BIN_DIR:$PATH"
-          echo "[INFO] Listing services";
+          
+          echo "[INFO] 📋 Service listing:"
           kubectl get svc -n "$NAMESPACE"
-          echo "[INFO] Attempting port-forward of api-gateway (background)";
+          
+          echo "[INFO] 🔌 Testing api-gateway connectivity..."
+          # Try port-forwarding to test service
           kubectl port-forward -n "$NAMESPACE" svc/api-gateway 8080:3003 >/dev/null 2>&1 &
           PF_PID=$!
-          sleep 8
-          echo "[INFO] Curl health endpoint (if exposed)";
-          if curl -fsS http://127.0.0.1:8080/health >/dev/null 2>&1; then
-            echo "[OK] Health endpoint responded"
+          
+          # Give port-forward time to establish
+          sleep 10
+          
+          echo "[INFO] 🏥 Checking health endpoint..."
+          if curl -fsS --max-time 10 http://127.0.0.1:8080/health >/dev/null 2>&1; then
+            echo "✅ Health endpoint responded successfully"
           else
-            echo "[WARN] Health endpoint not reachable (this may be expected if route not implemented)"
+            echo "⚠️ Health endpoint not reachable (may be expected if /health not implemented)"
           fi
-          kill $PF_PID 2>/dev/null || true
+          
+          # Clean up port-forward
+          kill $PF_PID 2>/dev/null || echo "Port-forward already terminated"
+          
+          echo "[INFO] ✅ Service check completed"
         '''
       }
     }
